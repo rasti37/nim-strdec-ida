@@ -1,4 +1,4 @@
-import math, os, strenc
+import os, strenc
 
 const asciiBanner = """
    _   _  ___  __  __
@@ -23,10 +23,7 @@ proc countVowels(strData: string): int =
 proc buildStory(hero: string, place: string): string =
   let part1 = "Once upon a time, in a faraway land called " & place & ", "
   let part2 = "there lived a brave hero named " & hero & ". "
-  let part3 = "Each day, " & hero & " wandered the streets of " & place & " seeking adventure."
-  let part4 = "\n\nThe townsfolk would whisper: \"" & hero & " is the greatest hero we've ever known!\""
-  let conclusion = "\n\nAnd that, dear reader, is how legends are born."
-  result = part1 & part2 & part3 & part4 & conclusion
+  result = part1 & part2
 
 proc getUserNameFromArgs(): string =
   if paramCount() >= 1:
@@ -41,9 +38,6 @@ proc showcaseMathOps(x: float, y: float) =
   echo "x - y = ", $(x - y)
   echo "x * y = ", $(x * y)
   echo "x / y = ", $(x / y)
-  echo "x^2 = ", $(x*x)
-  echo "floor(x / y) = ", $floor(x / y)
-  echo "ceil(x / y) = ", $ceil(x / y)
   echo "---------------------------"
 
 proc randomQuote() =
@@ -52,8 +46,6 @@ proc randomQuote() =
     "The journey of a thousand miles begins with a single step.",
     "To be or not to be, that is the question.",
     "Fortune favors the bold.",
-    "Nothing is impossible to a willing heart.",
-    "Hitch your wagon to a star."
   ]
 
   var idx = int(1337) mod quotes.len
@@ -71,9 +63,9 @@ when isMainModule:
   greetUser(userName)
   
   let story = buildStory("Aster", "Fooville")
-  echo "\n--- Short Story ---"
+  echo "--- Short Story ---"
   echo story
-  echo "\n-------------------"
+  echo "-------------------"
   
   showcaseMathOps(42.5, 7.2)
   
@@ -84,4 +76,3 @@ when isMainModule:
   randomQuote()
 
   echo "\nThanks for running this Nim demonstration, \"", userName, "\"!"
-  echo "Feel free to explore, modify, and have fun with Nim."

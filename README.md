@@ -12,7 +12,7 @@ This python tool decrypts all the string literals inside the loaded binary. The 
 
 ## 🎞️ Demonstration
 
-<insert_gif_here>
+<center><img src="demonstration.gif" /></center>
 
 ## 🚧 How to use
 
