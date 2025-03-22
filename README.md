@@ -8,7 +8,7 @@ This python tool decrypts all the string literals inside the loaded binary. The 
 
 > [!NOTE]
 > 
-> After each successful decryption, the tool leaves a comment with the decrypted literal at the line that calls the algorithm.
+> The script modifies the database by setting a comment with the decrypted string literal.
 
 ## 🎞️ Demonstration
 
@@ -28,4 +28,5 @@ This python tool decrypts all the string literals inside the loaded binary. The 
 
 ## 📝 Notes
 
-- Only `PE` and `ELF` binaries are tested and supported.
+- Only `PE` and `ELF` binaries are currently supported
+- strdec has been tested with IDA Pro 7.6
