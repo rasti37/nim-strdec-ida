@@ -5,7 +5,7 @@ filetype = idaapi.inf_get_filetype()
 IS_ELF   = filetype == idc.FT_ELF
 IS_PE    = filetype == idc.FT_PE
 assert IS_ELF or IS_PE, "Only ELF and PE binaries are supported."
-IS_64 = idaapi.get_inf_structure().is_64bit()
+IS_64 = ida_ida.inf_is_64bit()
 
 def strdecrypt(enc, l, key):
     dec = list(enc)

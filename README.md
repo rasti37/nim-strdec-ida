@@ -28,5 +28,6 @@ This python tool decrypts all the string literals inside the loaded binary. The 
 
 ## 📝 Notes
 
-- Only `PE` and `ELF` binaries are currently supported
-- strdec has been tested with IDA Pro 7.6 and 8.X
+- The tool is written in Python3.
+- Only `PE` and `ELF` binaries are currently supported.
+- strdec has been tested with IDA Pro 7.6, 8.x and 9.x.
