@@ -1,4 +1,5 @@
 import struct, ida_hexrays, idautils
+from ida_hexrays import *
 
 IDENTIFIER = 'gkkaekgaEE'
 filetype = idaapi.inf_get_filetype()
@@ -6,8 +7,12 @@ IS_ELF   = filetype == idc.FT_ELF
 IS_PE    = filetype == idc.FT_PE
 assert IS_ELF or IS_PE, "Only ELF and PE binaries are supported."
 IS_64 = ida_ida.inf_is_64bit()
+ITPs = [
+    ITP_SEMI, ITP_COLON, ITP_CURLY1, ITP_CURLY2, ITP_BLOCK1, ITP_BLOCK2, ITP_ARG64, ITP_CASE, ITP_DO, ITP_ELSE, ITP_SIGN, ITP_BRACE1, ITP_BRACE2, ITP_INNER_LAST
+]
 
-def strdecrypt(enc, l, key):
+def strdecrypt(enc, key):
+    l = len(enc)
     dec = list(enc)
     for i in range(l):
         for f in [0, 8, 16, 24]:
@@ -20,95 +25,85 @@ def strdecrypt(enc, l, key):
         return None
 
 def get_previous_instruction(insn):
-    ea = idaapi.prev_head(insn.ea, 0x10)
-    prev_insn = idaapi.insn_t()
-    assert idaapi.decode_insn(prev_insn, ea)
-    return prev_insn
-
-def get_pointer_type(addr):
-    l = 1
-    while True:
-        addr = idaapi.get_qword(addr)
-        seg = idaapi.getseg(addr)
-        if not seg:
-            break
-        l += 1
-    return l
+    ea = idaapi.prev_head(insn, 0x10)
+    assert idaapi.decode_insn(idaapi.insn_t(), ea)
+    return ea
 
 def is_mov_mnem(mnem):
-    return mnem in [
-                    'mov',      # ELF (or PE)
-                    'movups',   # PE
-                   ]
+    return mnem.lower() in ['mov',      # ELF (or PE)
+                            'movups',   # PE
+                            'lea']
 
 def extract_word(addr):
     f = idaapi.get_qword if IS_64 else idaapi.get_dword
     return f(addr)
     
-def is_source_operand_ptr_to_rdata(insn):
-    if is_mov_mnem(insn.get_canon_mnem()):
-        ptr = insn.Op2.addr
-        # make sure it's a single pointer
-        if get_pointer_type(ptr) == 1:
-            if idaapi.get_segm_name(idaapi.getseg(ptr)) in ['.rdata', '.rodata', '__const']:
-                return ptr
-
-def extract_enc_string_from_current_insn(insn):
-    prev = insn
-    off = 0x08 if IS_64 else 0x04
-    # hopefully, the enc string will be one in one of the previous 100 instructions
-    for _ in range(50):
-        prev = get_previous_instruction(prev)
-        ptr_to_data_segment = is_source_operand_ptr_to_rdata(prev)
-        if ptr_to_data_segment:
-            enc_str_length = extract_word(ptr_to_data_segment)
-            enc_str_object_ptr = extract_word(ptr_to_data_segment + off)
-            enc_str = idaapi.get_bytes(enc_str_object_ptr + off, enc_str_length)
-            return enc_str_length, enc_str
-
-    raise ValueError(f"Something went really wrong trying to extract enc string for call @ 0x{insn.ea:x}")
-
-def extract_key_from_current_insn(insn):
-    prev = insn
-    # hopefully, the key will be one in one of the previous 100 instructions
-    for _ in range(50):
-        prev = get_previous_instruction(prev)
-        if is_mov_mnem(prev.get_canon_mnem().lower()):
-            if IS_64:
-                # mov <reg>, <key>
-                if prev.Op1.type == idaapi.o_reg and prev.Op2.type == ida_ua.o_imm:
-                    return prev.Op2.value
-            else:
-                # mov dword ptr [esp+8], <key>
-                if prev.Op1.type == idaapi.o_displ and prev.Op1.dtype == ida_ua.o_mem and prev.Op2.type == ida_ua.o_imm:
-                    return prev.Op2.value
-
-    raise ValueError(f"Something went really wrong trying to extract the key for call @ 0x{insn.ea:x}")
+def is_valid_ptr(ptr):
+    return bool(idc.get_segm_name(ptr))
 
 def extract_key_and_encstr(xref):
-    current_insn = idaapi.insn_t()
-    if not idaapi.decode_insn(current_insn, xref):
+    if not idaapi.decode_insn(idaapi.insn_t(), xref):
         print(f"[-] Something went wrong with decoding instruction @ 0x{xref:x}")
-        return None, None, None
+        return None, None
     
-    l, enc_string = extract_enc_string_from_current_insn(current_insn)
-    key = extract_key_from_current_insn(current_insn)
-    
-    return enc_string, l, key
+    # get function arguments
+    enc_str_insn, key_insn = idaapi.get_arg_addrs(xref)
+    # arg1 = pointer to encrypted string struct
+    enc_string_ptr = get_operand_value(enc_str_insn, 1)
+    # arg2 = XOR key
+    key = get_operand_value(key_insn, 1)
+    if key < 0 or enc_string_ptr < 0:
+        return None, None
+
+    if get_operand_type(enc_str_insn, 1) == ida_ua.o_reg:
+        # if second argument is a register
+        # we need to get its value from previous instructions
+        target_reg_id = get_operand_value(enc_str_insn, 1)
+        register_assigned = False
+        prev = enc_str_insn
+        while not register_assigned:
+            prev = get_previous_instruction(prev)
+            # get mnemonic
+            mnem = print_insn_mnem(prev)
+            # get destination operand
+            op0 = get_operand_value(prev, 0)
+            # get source operand
+            op1 = get_operand_value(prev, 1)
+            # if our target register is assigned a valid pointer, we are good to go
+            if is_mov_mnem(mnem) and op0 == target_reg_id and is_valid_ptr(op1):
+                enc_string_ptr = op1
+                register_assigned = True
+
+    off = 0x08 if IS_64 else 0x04
+    enc_str_length = extract_word(enc_string_ptr)
+    enc_str_object_ptr = extract_word(enc_string_ptr + off)
+    if is_valid_ptr(enc_str_object_ptr):
+        enc_str = idaapi.get_bytes(enc_str_object_ptr, enc_str_length)
+    else:
+        # sometimes the struct is: Length | Length | Data
+        # and not: Length | Pointer | Data
+        enc_str = idaapi.get_bytes(enc_string_ptr + off + off, enc_str_length)
+
+    return enc_str, key
 
 def set_decrypted_string_as_comment(addr, comm):
     func_decomp = ida_hexrays.decompile(addr)
     
     tloc = ida_hexrays.treeloc_t()
     tloc.ea = addr
-    tloc.itp = ida_hexrays.ITP_SEMI
     
-    func_decomp.set_user_cmt(tloc, comm)           # set comment in pseudocode
-    idc.set_cmt(addr, comm, True)                  # set comment in disassembly
-    
-    func_decomp.save_user_cmts()
-    ida_hexrays.mark_cfunc_dirty(addr)
-    func_decomp.refresh_func_ctext()
+    # bruteforce ITP since ITP_SEMI, ITP_COLON fail most of the times
+    for itp in ITPs:
+        tloc.itp = itp
+        func_decomp.set_user_cmt(tloc, comm.strip())           # set comment in pseudocode
+        idc.set_cmt(addr, comm.strip(), True)                  # set comment in disassembly
+        func_decomp.save_user_cmts()
+        func_decomp.__str__()
+        if not func_decomp.has_orphan_cmts():
+            break
+        func_decomp.del_orphan_cmts()
+    else:
+        raise RuntimeError(f"A comment could not be set @ 0x{addr:x}")
 
 def main():
     symbols = list(idautils.Functions())
@@ -128,16 +123,18 @@ def main():
     print(f'[+] Found {len(xrefs)} references to {idaapi.get_name(strenc_symbol)}')
 
     for i, xref in enumerate(xrefs):
-        enc, l, key = extract_key_and_encstr(xref)
-        if not (enc and l and key):
+        enc, key = extract_key_and_encstr(xref)
+        if not (enc and key):
             print(f'[-] Failed to extract enc string or key @ 0x{xref:x}')
             continue
-        dec = strdecrypt(enc, l, key)
+        
+        dec = strdecrypt(enc, key)
         if not dec:
             print(f'[-] Failed to decrypt @ 0x{xref:x}')
             continue
+        
         set_decrypted_string_as_comment(xref, dec)
-        print(f'[{i+1}/{len(xrefs)}] Comment: "{dec}" set @ 0x{xref:x}')
+        print(f'[{i+1}/{len(xrefs)}] Comment: {dec.encode()} set @ 0x{xref:x}')
 
 
 
